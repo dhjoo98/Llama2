@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple, TypedDict
 
+
 import torch
 import torch.nn.functional as F
 from fairscale.nn.model_parallel.initialize import (
@@ -16,7 +17,8 @@ from fairscale.nn.model_parallel.initialize import (
     model_parallel_is_initialized,
 )
 
-from llama.model import ModelArgs, Transformer
+#donghyeon: so llama.model is the transformer (see llama/model.py)
+from llama.model import ModelArgs, Transformer 
 from llama.tokenizer import Tokenizer
 
 Role = Literal["system", "user", "assistant"]
@@ -47,7 +49,7 @@ B_SYS, E_SYS = "<<SYS>>\n", "\n<</SYS>>\n\n"
 SPECIAL_TAGS = [B_INST, E_INST, "<<SYS>>", "<</SYS>>"]
 UNSAFE_ERROR = "Error: special tags are not allowed as part of the prompt."
 
-
+#donghyeon: where Llama that we use is defined. 
 class Llama:
     @staticmethod
     def build(
@@ -123,10 +125,12 @@ class Llama:
         return Llama(model, tokenizer)
 
     def __init__(self, model: Transformer, tokenizer: Tokenizer):
+        #donghyeon model defined here 
         self.model = model
         self.tokenizer = tokenizer
 
     @torch.inference_mode()
+    #donghyeon: Thus the actual 'processing' is done here 
     def generate(
         self,
         prompt_tokens: List[List[int]],
@@ -156,9 +160,10 @@ class Llama:
 
         """
         params = self.model.params
-        bsz = len(prompt_tokens)
+        bsz = len(prompt_tokens) #the first dimension, the batch size. 
         assert bsz <= params.max_batch_size, (bsz, params.max_batch_size)
 
+        #determine the forward pass parameter for each batch. (total_len)
         min_prompt_len = min(len(t) for t in prompt_tokens)
         max_prompt_len = max(len(t) for t in prompt_tokens)
         assert max_prompt_len <= params.max_seq_len
@@ -171,10 +176,11 @@ class Llama:
         if logprobs:
             token_logprobs = torch.zeros_like(tokens, dtype=torch.float)
 
+        #looped forward pass for each token, (batched)
         prev_pos = 0
         eos_reached = torch.tensor([False] * bsz, device="cuda")
         input_text_mask = tokens != pad_id
-        if min_prompt_len == total_len:
+        if min_prompt_len == total_len: 
             logits = self.model.forward(tokens, prev_pos)
             token_logprobs = -F.cross_entropy(
                 input=logits.transpose(1, 2),
@@ -183,8 +189,9 @@ class Llama:
                 ignore_index=pad_id,
             )
 
-        for cur_pos in range(min_prompt_len, total_len):
+        for cur_pos in range(min_prompt_len, total_len): #here is where cur_pos is incremented.
             logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+            #forward params: Input Tensor and start_pos 
             if temperature > 0:
                 probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
                 next_token = sample_top_p(probs, top_p)
@@ -209,6 +216,7 @@ class Llama:
             )
             prev_pos = cur_pos
             if all(eos_reached):
+                print('-----EOS token has been reached!')
                 break
 
         if logprobs:
@@ -261,7 +269,9 @@ class Llama:
         """
         if max_gen_len is None:
             max_gen_len = self.model.params.max_seq_len - 1
+        print("-----max_gen_length: ", max_gen_len)
         prompt_tokens = [self.tokenizer.encode(x, bos=True, eos=False) for x in prompts]
+        print("length of the input sequence is:", len(prompt_tokens[0]))
         generation_tokens, generation_logprobs = self.generate(
             prompt_tokens=prompt_tokens,
             max_gen_len=max_gen_len,
@@ -279,8 +289,10 @@ class Llama:
                 }
                 for t, logprobs_i in zip(generation_tokens, generation_logprobs)
             ]
+        print("length of the output sequence is: ", len(generation_tokens[0]))
         return [{"generation": self.tokenizer.decode(t)} for t in generation_tokens]
 
+    #donghyeon: where chat_completion.py enters the call. 
     def chat_completion(
         self,
         dialogs: List[Dialog],
@@ -361,6 +373,7 @@ class Llama:
             )
             prompt_tokens.append(dialog_tokens)
 
+        #donghyeon: Oh so this is basically where 'processing takes place'  
         generation_tokens, generation_logprobs = self.generate(
             prompt_tokens=prompt_tokens,
             max_gen_len=max_gen_len,
@@ -368,6 +381,7 @@ class Llama:
             top_p=top_p,
             logprobs=logprobs,
         )
+        #donghyeon: then this is just tokenizer 
         if logprobs:
             return [
                 {

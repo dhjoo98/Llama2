@@ -1,5 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # This software may be used and distributed according to the terms of the Llama 2 Community License Agreement.
+# See Notion's document
 
 import math
 from dataclasses import dataclass
@@ -9,13 +10,13 @@ import fairscale.nn.model_parallel.initialize as fs_init
 import torch
 import torch.nn.functional as F
 from fairscale.nn.model_parallel.layers import (
-    ColumnParallelLinear,
+    ColumnParallelLinear, 
     ParallelEmbedding,
     RowParallelLinear,
 )
 from torch import nn
 
-
+#donghyeon: where param is defined
 @dataclass
 class ModelArgs:
     dim: int = 4096
@@ -172,7 +173,7 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
         .reshape(bs, slen, n_kv_heads * n_rep, head_dim)
     )
 
-
+#donghyeon: actual Attention
 class Attention(nn.Module):
     """Multi-head attention module."""
     def __init__(self, args: ModelArgs):
@@ -204,9 +205,9 @@ class Attention(nn.Module):
         self.n_rep = self.n_local_heads // self.n_local_kv_heads
         self.head_dim = args.dim // args.n_heads
 
-        self.wq = ColumnParallelLinear(
+        self.wq = ColumnParallelLinear( #Donghyeon: did analysis of Fairscale ColumnParallelLinear on Notion, in itself a linear layer.
             args.dim,
-            args.n_heads * self.head_dim,
+            args.n_heads * self.head_dim, 
             bias=False,
             gather_output=False,
             init_method=lambda x: x,
@@ -270,8 +271,10 @@ class Attention(nn.Module):
             torch.Tensor: Output tensor after attention.
 
         """
+        #is input x a token vector? 
+        #why is there an option to set the starting position to cache? 
         bsz, seqlen, _ = x.shape
-        xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        xq, xk, xv = self.wq(x), self.wk(x), self.wv(x) #calculate that token's KQV vectors.
 
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
@@ -279,16 +282,18 @@ class Attention(nn.Module):
 
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
-        self.cache_k = self.cache_k.to(xq)
-        self.cache_v = self.cache_v.to(xq)
+        self.cache_k = self.cache_k.to(xq) #what does this do? 
+        self.cache_v = self.cache_v.to(xq) #according to GPT, match cache's device and type to xq. 
 
-        self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk
-        self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv
+        self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk #access the first two dimension. 
+        self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv #append to start_pos
 
-        keys = self.cache_k[:bsz, : start_pos + seqlen]
+        keys = self.cache_k[:bsz, : start_pos + seqlen] #Then load the entire key. 
         values = self.cache_v[:bsz, : start_pos + seqlen]
 
-        # repeat k/v heads if n_kv_heads < n_heads
+        # repeat k/v heads if n_kv_heads < n_heads 
+        # in GQA, num_head of K and V is smaller then Q's head number 
+        # number of repetition is the num_Q_heads // num_KV_heads
         keys = repeat_kv(keys, self.n_rep)  # (bs, cache_len + seqlen, n_local_heads, head_dim)
         values = repeat_kv(values, self.n_rep)  # (bs, cache_len + seqlen, n_local_heads, head_dim)
 
@@ -300,10 +305,11 @@ class Attention(nn.Module):
             scores = scores + mask  # (bs, n_local_heads, seqlen, cache_len + seqlen)
         scores = F.softmax(scores.float(), dim=-1).type_as(xq)
         output = torch.matmul(scores, values)  # (bs, n_local_heads, seqlen, head_dim)
+        # calculate the score_x_value here, 
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
-        return self.wo(output)
+        return self.wo(output) # Additional linear layer here. 
 
-
+#donghyeon: actual feedforward
 class FeedForward(nn.Module):
     def __init__(
         self,
@@ -347,7 +353,7 @@ class FeedForward(nn.Module):
     def forward(self, x):
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
-
+#donghyeon: the block that is appended to class Transformer's layer
 class TransformerBlock(nn.Module):
     def __init__(self, layer_id: int, args: ModelArgs):
         """
@@ -403,13 +409,14 @@ class TransformerBlock(nn.Module):
             torch.Tensor: Output tensor after applying attention and feedforward layers.
 
         """
-        h = x + self.attention.forward(
+        h = x + self.attention.forward(  #donghyeon: the actual attention computation 
             self.attention_norm(x), start_pos, freqs_cis, mask
         )
-        out = h + self.feed_forward.forward(self.ffn_norm(h))
+        out = h + self.feed_forward.forward(self.ffn_norm(h)) #donghyeon: the actual ff computation
         return out
 
 
+#donghyeon: the Transformer class to be used! 
 class Transformer(nn.Module):
     def __init__(self, params: ModelArgs):
         """
@@ -439,8 +446,10 @@ class Transformer(nn.Module):
         )
 
         self.layers = torch.nn.ModuleList()
+        #donghyeon: interesting way to define model layers
+        ## param defined at line 22
         for layer_id in range(params.n_layers):
-            self.layers.append(TransformerBlock(layer_id, params))
+            self.layers.append(TransformerBlock(layer_id, params)) #defined on line 351
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
         self.output = ColumnParallelLinear(
