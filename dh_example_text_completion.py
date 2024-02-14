@@ -7,6 +7,7 @@ from llama import Llama
 from typing import List
 #donghyeon
 from torch.profiler import profile, record_function, ProfilerActivity
+from torch.cuda import nvtx
 
 def main(
     ckpt_dir: str,
@@ -106,12 +107,18 @@ def main(
     # prof.export_chrome_trace("text_completion_trace.json")
     '''
     
+    #for nvidia nsight systems profiling
+    nvtx.range_push("Computation_start")
+
+
     results = generator.text_completion(
             prompts,
             max_gen_len=max_gen_len,
             temperature=temperature,
             top_p=top_p,
         )
+    
+    nvtx.range_pop()
 
     #printing output
     for prompt, result in zip(prompts, results):
