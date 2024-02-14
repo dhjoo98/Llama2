@@ -180,8 +180,10 @@ class Llama:
         prev_pos = 0
         eos_reached = torch.tensor([False] * bsz, device="cuda")
         input_text_mask = tokens != pad_id
+        endor_total_activations = [] #donghyeon_endor
         if min_prompt_len == total_len: 
-            logits = self.model.forward(tokens, prev_pos)
+            logits, endor_prompt_activations = self.model.forward(tokens, prev_pos) #donghyeon_endor
+            endor_total_activations.append(endor_prompt_activations) #donghyeon_endor
             token_logprobs = -F.cross_entropy(
                 input=logits.transpose(1, 2),
                 target=tokens,
@@ -190,7 +192,8 @@ class Llama:
             )
 
         for cur_pos in range(min_prompt_len, total_len): #here is where cur_pos is incremented.
-            logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+            logits, endor_single_token_activations = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos) #donghyeon_endor
+            endor_total_activations.append(endor_single_token_activations) #donghyeon_endor
             #forward params: Input Tensor and start_pos 
             if temperature > 0:
                 probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
@@ -236,7 +239,7 @@ class Llama:
                 probs = probs[:eos_idx] if logprobs else None
             out_tokens.append(toks)
             out_logprobs.append(probs)
-        return (out_tokens, out_logprobs if logprobs else None)
+        return (out_tokens, out_logprobs if logprobs else None, endor_total_activations) #donghyeon_endor
 
     def text_completion(
         self,
@@ -272,7 +275,7 @@ class Llama:
         print("-----max_gen_length: ", max_gen_len)
         prompt_tokens = [self.tokenizer.encode(x, bos=True, eos=False) for x in prompts]
         print("length of the input sequence is:", len(prompt_tokens[0]))
-        generation_tokens, generation_logprobs = self.generate(
+        generation_tokens, generation_logprobs, endor_activations_final = self.generate( #donghyeon_endor
             prompt_tokens=prompt_tokens,
             max_gen_len=max_gen_len,
             temperature=temperature,
@@ -280,6 +283,9 @@ class Llama:
             logprobs=logprobs,
             echo=echo,
         )
+        file_path = './profile_log/activation_2.pth'#donghyeon_endor
+        torch.save(endor_activations_final, file_path)
+        print('file saved')
         if logprobs:
             return [
                 {

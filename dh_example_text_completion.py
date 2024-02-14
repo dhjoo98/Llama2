@@ -1,6 +1,17 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # This software may be used and distributed according to the terms of the Llama 2 Community License Agreement.
 
+#from Squadv2
+import json 
+
+json_file_path = './datasets/squadv2/concatenated_300_sentences.json'
+
+with open(json_file_path, 'r') as input_texts:
+    squad_data = json.load(input_texts)
+
+print(len(squad_data))
+print(len(squad_data[0]))
+
 import fire
 
 from llama import Llama
@@ -14,9 +25,13 @@ def main(
     tokenizer_path: str,
     temperature: float = 0.6,
     top_p: float = 0.9,
-    max_seq_len: int = 128,
-    max_gen_len: int = 64,
-    max_batch_size: int = 4,
+    max_seq_len: int = 150, #keeping this as a constant.| there's error when input prompt tokenized exceeds max_seq_len
+        #but also, output is a repetition when input is too short.
+    max_gen_len: int = 100,
+    max_batch_size: int = 1,
+    #max_seq_len: int = 128,
+    #max_gen_len: int = 64,
+    #max_batch_size: int = 4,
 ):
     """
     Entry point of the program for generating text using a pretrained model.
@@ -41,7 +56,9 @@ def main(
 
     prompts: List[str] = [
         # For these prompts, the expected answer is the natural continuation of the prompt
-        "I believe the meaning of life is"]
+        #"I believe the meaning of life is"]
+        #"The Normans (Norman: Nourmands; French: Normands; Latin: Normanni) were the people who in the 10th a"]
+        squad_data[0]]
         #is there a way to print out the sequence length for this: 
         #donghyeon: purposefully tailored to process just one sequence. 
     
@@ -108,7 +125,7 @@ def main(
     '''
     
     #for nvidia nsight systems profiling
-    nvtx.range_push("Computation_start")
+    #nvtx.range_push("Computation_start")
 
 
     results = generator.text_completion(
@@ -118,7 +135,7 @@ def main(
             top_p=top_p,
         )
     
-    nvtx.range_pop()
+    #nvtx.range_pop()
 
     #printing output
     for prompt, result in zip(prompts, results):

@@ -16,11 +16,14 @@
 output_file="./profile_log/nsys/text_completion_$1.out"
 
 # for nsight systems 
-~/nsight-systems-2024.1.1/bin/nsys profile --trace=cuda,nvtx,cudnn,cublas --capture-range=nvtx --gpu-metrics-device=help -output="$output_file" \
+#~/nsight-systems-2024.1.1/bin/nsys profile --trace=cuda,nvtx,cudnn,cublas --capture-range=nvtx --gpu-metrics-device=help -output="$output_file" \
 torchrun --nproc_per_node 1 dh_example_text_completion.py \
     --ckpt_dir llama-2-7b \
     --tokenizer_path tokenizer.model \
-    --max_seq_len 4096 \
-		--max_gen_len 512 \
-    --max_batch_size 6 \
+    #--max_seq_len 4096 \
+		#--max_gen_len 512 \
+    #--max_batch_size 6 \
 		--temperature 0.0;
+
+
+#todo: implement extraction with PyTorch hook.

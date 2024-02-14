@@ -13,7 +13,7 @@ def main(
     top_p: float = 0.9,
     max_seq_len: int = 128,
     max_gen_len: int = 64,
-    max_batch_size: int = 4,
+    max_batch_size: int = 1,
 ):
     """
     Entry point of the program for generating text using a pretrained model.
