@@ -415,15 +415,15 @@ class TransformerBlock(nn.Module):
             torch.Tensor: Output tensor after applying attention and feedforward layers.
 
         """
-        endor_activations_block = [self.layer_id] #donghyeon_endor: initialize on every forward pass. 
+        #endor_activations_block = [self.layer_id] #donghyeon_endor: initialize on every forward pass. 
         h = x + self.attention.forward(  #donghyeon: the actual attention computation 
             self.attention_norm(x), start_pos, freqs_cis, mask
         )
         out_, Intermediate1, Intermediate2 = self.feed_forward.forward(self.ffn_norm(h)) #donghyeon: the actual ff computation
-        endor_activations_block.append([Intermediate1,Intermediate2])
+        #endor_activations_block.append([Intermediate1,Intermediate2])
         out = h + out_ #donghyeon: the actual ff computation
         #out = h + self.feed_forward.forward(self.ffn_norm(h)) 
-        return out, endor_activations_block
+        return out #, endor_activations_block
 
 
 #donghyeon: the Transformer class to be used! 
@@ -487,7 +487,7 @@ class Transformer(nn.Module):
             torch.Tensor: Output logits after applying the Transformer model.
 
         """
-        endor_activations_trfm = [] #donghyeon_endor
+        #endor_activations_trfm = [] #donghyeon_endor
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
         self.freqs_cis = self.freqs_cis.to(h.device)
@@ -511,8 +511,9 @@ class Transformer(nn.Module):
             ]).type_as(h)
 
         for layer in self.layers:
-            h, endor = layer(h, start_pos, freqs_cis, mask)
-            endor_activations_trfm.append(endor)
+            h= layer(h, start_pos, freqs_cis, mask)
+            #h, endor = layer(h, start_pos, freqs_cis, mask)
+            #endor_activations_trfm.append(endor)
         h = self.norm(h)
         output = self.output(h).float()
-        return output, endor_activations_trfm
+        return output #, endor_activations_trfm

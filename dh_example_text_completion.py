@@ -1,6 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # This software may be used and distributed according to the terms of the Llama 2 Community License Agreement.
-
+'''
 #from Squadv2
 import json 
 
@@ -11,7 +11,7 @@ with open(json_file_path, 'r') as input_texts:
 
 print(len(squad_data))
 print(len(squad_data[0]))
-
+'''
 import fire
 
 from llama import Llama
@@ -56,9 +56,9 @@ def main(
 
     prompts: List[str] = [
         # For these prompts, the expected answer is the natural continuation of the prompt
-        #"I believe the meaning of life is"]
+        "I believe the meaning of life is"]
         #"The Normans (Norman: Nourmands; French: Normands; Latin: Normanni) were the people who in the 10th a"]
-        squad_data[0]]
+        #squad_data[0]]
         #is there a way to print out the sequence length for this: 
         #donghyeon: purposefully tailored to process just one sequence. 
     
@@ -97,6 +97,7 @@ def main(
     print(prof.key_averages(group_by_input_shape=True).table(sort_by="cuda_time_total", row_limit=15))
     '''
 
+    '''
     #0208
     
     #donghyeon CPU-GPU profiler + stack export and print stat   
@@ -122,7 +123,7 @@ def main(
     print("\n==================================\n")
 
     prof.export_chrome_trace("./profile_log/trace/text_completion_trace_squad.json")
-    
+    '''
     
     #for nvidia nsight systems profiling
     #nvtx.range_push("Computation_start")
