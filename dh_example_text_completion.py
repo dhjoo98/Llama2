@@ -98,7 +98,7 @@ def main(
     '''
 
     #0208
-    '''
+    
     #donghyeon CPU-GPU profiler + stack export and print stat   
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], with_stack=True, record_shapes=True) as prof:
         with record_function("model_inference"):
@@ -121,8 +121,8 @@ def main(
     print(prof.key_averages(group_by_stack_n=5).table(sort_by="self_cuda_time_total", row_limit=2))
     print("\n==================================\n")
 
-    # prof.export_chrome_trace("text_completion_trace.json")
-    '''
+    prof.export_chrome_trace("./profile_log/trace/text_completion_trace_squad.json")
+    
     
     #for nvidia nsight systems profiling
     #nvtx.range_push("Computation_start")

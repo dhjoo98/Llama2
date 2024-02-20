@@ -284,8 +284,8 @@ class Llama:
             echo=echo,
         )
         file_path = './profile_log/activation_2.pth'#donghyeon_endor
-        torch.save(endor_activations_final, file_path)
-        print('file saved')
+        #torch.save(endor_activations_final, file_path)
+        #print('file saved')
         if logprobs:
             return [
                 {
