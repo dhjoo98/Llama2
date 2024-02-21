@@ -1,6 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # This software may be used and distributed according to the terms of the Llama 2 Community License Agreement.
-'''
+
 #from Squadv2
 import json 
 
@@ -11,7 +11,7 @@ with open(json_file_path, 'r') as input_texts:
 
 print(len(squad_data))
 print(len(squad_data[0]))
-'''
+
 import fire
 
 from llama import Llama
@@ -19,6 +19,7 @@ from typing import List
 #donghyeon
 from torch.profiler import profile, record_function, ProfilerActivity
 from torch.cuda import nvtx
+import torch
 
 def main(
     ckpt_dir: str,
@@ -56,9 +57,9 @@ def main(
 
     prompts: List[str] = [
         # For these prompts, the expected answer is the natural continuation of the prompt
-        "I believe the meaning of life is"]
+        #"I believe the meaning of life is"]
         #"The Normans (Norman: Nourmands; French: Normands; Latin: Normanni) were the people who in the 10th a"]
-        #squad_data[0]]
+        squad_data[0]]
         #is there a way to print out the sequence length for this: 
         #donghyeon: purposefully tailored to process just one sequence. 
     
@@ -101,6 +102,8 @@ def main(
     #0208
     
     #donghyeon CPU-GPU profiler + stack export and print stat   
+    #with_stack=True yields error on Ubuntu. probably OOM
+    #with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], with_stack=False, record_shapes=True) as prof:
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], with_stack=True, record_shapes=True) as prof:
         with record_function("model_inference"):
             results = generator.text_completion(
@@ -122,21 +125,22 @@ def main(
     print(prof.key_averages(group_by_stack_n=5).table(sort_by="self_cuda_time_total", row_limit=2))
     print("\n==================================\n")
 
-    prof.export_chrome_trace("./profile_log/trace/text_completion_trace_squad.json")
+    prof.export_chrome_trace("./profile_log/trace/text_completion_trace_squad_ubuntu_local.json")
     '''
     
     #for nvidia nsight systems profiling
-    #nvtx.range_push("Computation_start")
+    nvtx.range_push("Computation_start")
 
-
-    results = generator.text_completion(
-            prompts,
-            max_gen_len=max_gen_len,
-            temperature=temperature,
-            top_p=top_p,
-        )
+    with torch.autograd.profiler.emit_nvtx(): #will this expose DNN layer annotation
+        results = generator.text_completion(
+                prompts,
+                max_gen_len=max_gen_len,
+                temperature=temperature,
+                top_p=top_p,
+            )
     
-    #nvtx.range_pop()
+    nvtx.range_pop()
+    #'''
 
     #printing output
     for prompt, result in zip(prompts, results):
