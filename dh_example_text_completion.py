@@ -17,9 +17,11 @@ import fire
 from llama import Llama
 from typing import List
 #donghyeon
-from torch.profiler import profile, record_function, ProfilerActivity
 from torch.cuda import nvtx
+
 import torch
+from torch.profiler import profile, record_function, ProfilerActivity
+
 
 def main(
     ckpt_dir: str,
@@ -138,7 +140,7 @@ def main(
                 temperature=temperature,
                 top_p=top_p,
             )
-    
+        
     nvtx.range_pop()
     #'''
 
