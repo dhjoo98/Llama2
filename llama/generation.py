@@ -8,8 +8,16 @@ import time
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple, TypedDict
 
+import signal 
+
+def signal_handler(signum, frame):
+    os.getpid()  # Example system call, easy to spot in perf
+
+signal.signal(signal.SIGUSR1, signal_handler)
+
 
 import torch
+from torch.cuda import nvtx
 import torch.nn.functional as F
 from fairscale.nn.model_parallel.initialize import (
     get_model_parallel_rank,
@@ -106,10 +114,14 @@ class Llama:
             checkpoints
         ), f"Loading a checkpoint for MP={len(checkpoints)} but world size is {model_parallel_size}"
         ckpt_path = checkpoints[get_model_parallel_rank()]
+        nvtx.range_push("torch.load checkpoint")
         checkpoint = torch.load(ckpt_path, map_location="cpu")
+        nvtx.range_pop()
+        #param is just too insignificant
+        #nvtx.range_push("json.load params")
         with open(Path(ckpt_dir) / "params.json", "r") as f:
             params = json.loads(f.read())
-
+        #nvtx.range_pop()
         model_args: ModelArgs = ModelArgs(
             max_seq_len=max_seq_len,
             max_batch_size=max_batch_size,
@@ -118,8 +130,14 @@ class Llama:
         tokenizer = Tokenizer(model_path=tokenizer_path)
         model_args.vocab_size = tokenizer.n_words
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
+        nvtx.range_push('initialize model')
         model = Transformer(model_args)
+        nvtx.range_pop()
+        nvtx.range_push('load state dict')
+        os.kill(os.getpid(), signal.SIGUSR1)
         model.load_state_dict(checkpoint, strict=False)
+        os.kill(os.getpid(), signal.SIGUSR1)
+        nvtx.range_pop()
         print(f"Loaded in {time.time() - start_time:.2f} seconds")
 
         return Llama(model, tokenizer)
@@ -181,6 +199,7 @@ class Llama:
         eos_reached = torch.tensor([False] * bsz, device="cuda")
         input_text_mask = tokens != pad_id
         #endor_total_activations = [] #donghyeon_endor
+        nvtx.range_push('Prompt phase')
         if min_prompt_len == total_len: 
             #logits, endor_prompt_activations = self.model.forward(tokens, prev_pos) #donghyeon_endor
             logits = self.model.forward(tokens, prev_pos) #donghyeon_endor
@@ -191,7 +210,8 @@ class Llama:
                 reduction="none",
                 ignore_index=pad_id,
             )
-
+        nvtx.range_pop()
+        nvtx.range_push('Decoding stage')
         for cur_pos in range(min_prompt_len, total_len): #here is where cur_pos is incremented.
             logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos) #donghyeon_endor
             #logits, endor_single_token_activations = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos) #donghyeon_endor
@@ -223,7 +243,7 @@ class Llama:
             if all(eos_reached):
                 print('-----EOS token has been reached!')
                 break
-
+        nvtx.range_pop()
         if logprobs:
             token_logprobs = token_logprobs.tolist()
         out_tokens, out_logprobs = [], []

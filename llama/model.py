@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 
 import fairscale.nn.model_parallel.initialize as fs_init
 import torch
+from torch.cuda import nvtx
 import torch.nn.functional as F
 from fairscale.nn.model_parallel.layers import (
     ColumnParallelLinear, 
@@ -458,9 +459,10 @@ class Transformer(nn.Module):
         self.layers = torch.nn.ModuleList()
         #donghyeon: interesting way to define model layers
         ## param defined at line 22
+        nvtx.range_push("Transformer layer append")
         for layer_id in range(params.n_layers):
             self.layers.append(TransformerBlock(layer_id, params)) #defined on line 351
-
+        nvtx.range_pop()
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
         self.output = ColumnParallelLinear(
             params.dim, params.vocab_size, bias=False, init_method=lambda x: x

@@ -50,12 +50,14 @@ def main(
         max_gen_len (int, optional): The maximum length of generated sequences. Defaults to 64.
         max_batch_size (int, optional): The maximum batch size for generating sequences. Defaults to 4.
     """ 
+    nvtx.range_push("Llama build")
     generator = Llama.build(
         ckpt_dir=ckpt_dir,
         tokenizer_path=tokenizer_path,
         max_seq_len=max_seq_len,
         max_batch_size=max_batch_size,
     )
+    nvtx.range_pop()
 
     prompts: List[str] = [
         # For these prompts, the expected answer is the natural continuation of the prompt
@@ -145,11 +147,12 @@ def main(
     #'''
 
     #printing output
+    nvtx.range_push("Prompt Print")
     for prompt, result in zip(prompts, results):
         print(prompt)
         print(f"> {result['generation']}")
         print("\n==================================\n")
-
+    nvtx.range_pop()
     
 
 if __name__ == "__main__":
