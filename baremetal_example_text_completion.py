@@ -14,13 +14,13 @@ print(len(squad_data[0]))
 
 import fire
 
-from llama import Llama
+from baremetal_Llama.generation_baremetal import Llama
 from typing import List
 #donghyeon
-from torch.cuda import nvtx
+#from torch.cuda import nvtx
 
 import torch
-from torch.profiler import profile, record_function, ProfilerActivity
+#from torch.profiler import profile, record_function, ProfilerActivity
 
 
 def main(
@@ -50,14 +50,14 @@ def main(
         max_gen_len (int, optional): The maximum length of generated sequences. Defaults to 64.
         max_batch_size (int, optional): The maximum batch size for generating sequences. Defaults to 4.
     """ 
-    nvtx.range_push("Llama build")
+    #nvtx.range_push("Llama build")
     generator = Llama.build(
         ckpt_dir=ckpt_dir,
         tokenizer_path=tokenizer_path,
         max_seq_len=max_seq_len,
         max_batch_size=max_batch_size,
     )
-    nvtx.range_pop()
+    #nvtx.range_pop()
 
     prompts: List[str] = [
         # For these prompts, the expected answer is the natural continuation of the prompt
@@ -133,7 +133,7 @@ def main(
     '''
     
     #for nvidia nsight systems profiling
-    nvtx.range_push("Computation_start")
+    #nvtx.range_push("Computation_start")
 
     #with torch.autograd.profiler.emit_nvtx(): #will this expose DNN layer annotation
     results = generator.text_completion(
@@ -143,16 +143,16 @@ def main(
                 top_p=top_p,
             )
             
-    nvtx.range_pop()
+    #nvtx.range_pop()
     #'''
 
     #printing output
-    nvtx.range_push("Prompt Print")
+    #nvtx.range_push("Prompt Print")
     for prompt, result in zip(prompts, results):
         print(prompt)
         print(f"> {result['generation']}")
         print("\n==================================\n")
-    nvtx.range_pop()
+    #nvtx.range_pop()
     
 
 if __name__ == "__main__":
