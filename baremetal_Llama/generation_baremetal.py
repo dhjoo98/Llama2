@@ -11,6 +11,10 @@ import torch.nn.functional as F
 from baremetal_Llama.model import ModelArgs, Transformer
 from llama.tokenizer import Tokenizer 
 
+from accelerate import init_empty_weights, load_checkpoint_and_dispatch, disk_offload
+
+from torch.cuda import nvtx
+
 class CompletionPrediction(TypedDict, total=False):
     generation: str
     tokens: List[str]  # not required
@@ -63,28 +67,14 @@ class Llama:
         # seed must be the same in all processes
         torch.manual_seed(seed)
 
-        #if local_rank > 0:
-        #    sys.stdout = open(os.devnull, "w")
-
+        '''
+        #naive 
         start_time = time.time()
-        checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
-        checkpoints_hf = [str(path) for path in Path(ckpt_dir).glob("*.pth")]
-        print('ckpt_dir: ', ckpt_dir)
-        print('checkpoints: ', checkpoints)
-        print('checkpoints_hf: ', checkpoints_hf)
-        assert len(checkpoints) > 0, f"no checkpoint files found in {ckpt_dir}"
-        #assert model_parallel_size == len(
-        #    checkpoints
-        #), f"Loading a checkpoint for MP={len(checkpoints)} but world size is {model_parallel_size}"
-        #ckpt_path = checkpoints[get_model_parallel_rank()]
-        #nvtx.range_push("torch.load checkpoint")
+        nvtx.range_push("torch.load checkpoint")
         checkpoint = torch.load(Path(ckpt_dir)/ "consolidated.00.pth", map_location="cpu")
-        #nvtx.range_pop()
-        #param is just too insignificant
-        #nvtx.range_push("json.load params")
+        nvtx.range_pop()
         with open(Path(ckpt_dir) / "params.json", "r") as f:
             params = json.loads(f.read())
-        #nvtx.range_pop()
         model_args: ModelArgs = ModelArgs(
             max_seq_len=max_seq_len,
             max_batch_size=max_batch_size,
@@ -92,23 +82,73 @@ class Llama:
         )
         tokenizer = Tokenizer(model_path=tokenizer_path)
         model_args.vocab_size = tokenizer.n_words
-        torch.set_default_tensor_type(torch.cuda.HalfTensor)
-        #nvtx.range_push('initialize model')
-        #model = Transformer(model_args)
-        #with init_empty_weights():
+        torch.set_default_tensor_type(torch.cuda.HalfTensor) # this must cause model to be initialized to GPU
+        nvtx.range_push('initialize model')
         model = Transformer(model_args)
-        #model = load_checkpoint_and_dispatch(
-        #    model, checkpoint=checkpoints_hf[0], device_map="auto"
-        #)
-        #nvtx.range_pop()
-        #nvtx.range_push('load state dict')
+        nvtx.range_pop()
+        nvtx.range_push('load state dict')
         #os.kill(os.getpid(), signal.SIGUSR1)
         model.load_state_dict(checkpoint, strict=False)
         #os.kill(os.getpid(), signal.SIGUSR1)
-        #nvtx.range_pop()
-        #print(f"Loaded in {time.time() - start_time:.2f} seconds")
-
+        nvtx.range_pop()
+        print(f"Loaded in {time.time() - start_time:.2f} seconds")
         return Llama(model, tokenizer)
+        '''
+        
+        #offload
+        start_time = time.time()
+        #checkpoint = "./llama-2-7b/consolidated.00.pth"
+        checkpoint = "./offload/param_no_ropefreq/consolidated.00.pth"
+        
+        #for key in checkpoint.keys():         
+        #    print(f"{key}: {checkpoint[key].size()}")
+        
+        with open(Path(ckpt_dir) / "params.json", "r") as f:
+            params = json.loads(f.read())
+        model_args: ModelArgs = ModelArgs(
+            max_seq_len=max_seq_len,
+            max_batch_size=max_batch_size,
+            **params,
+        )
+        tokenizer = Tokenizer(model_path=tokenizer_path)
+        model_args.vocab_size = tokenizer.n_words
+        torch.set_default_tensor_type(torch.cuda.HalfTensor) # this must cause model to be initialized to GPU
+        
+        with init_empty_weights():
+            model = Transformer(model_args)
+        device_map = torch.load("./offload/device_map_5050_RMS.pth")
+        
+        model = load_checkpoint_and_dispatch(
+            model, checkpoint=checkpoint, device_map=device_map, offload_folder="./offload/space", 
+            offload_state_dict=True,
+            no_split_module_classes=['TransformerBlock','RMSNorm', 'Embedding', 'Linear'] 
+            #make sure 1)Layer-wise load, 2)No residual broken
+            )
+            #model, checkpoint=checkpoint, device_map='auto', offload_state_dict=True, dtype='float16' ) 
+            #possible float32 to float16 overhead at multiple times (and to cuda.HalfTensor?)
+        print(f"Loaded in {time.time() - start_time:.2f} seconds")
+        return Llama(model, tokenizer)
+        #'''
+        
+        
+        
+        
+        
+        
+        
+        #checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
+        #checkpoints_hf = [str(path) for path in Path(ckpt_dir).glob("*.pth")]
+        #print('ckpt_dir: ', ckpt_dir)
+        #print('checkpoints: ', checkpoints)
+        #print('checkpoints_hf: ', checkpoints_hf)
+        #assert len(checkpoints) > 0, f"no checkpoint files found in {ckpt_dir}"
+        #assert model_parallel_size == len(
+        #    checkpoints
+        #), f"Loading a checkpoint for MP={len(checkpoints)} but world size is {model_parallel_size}"
+        #ckpt_path = checkpoints[get_model_parallel_rank()]
+        
+        
+        
 
     def __init__(self, model: Transformer, tokenizer: Tokenizer):
         #donghyeon model defined here 
