@@ -1,5 +1,5 @@
 # single python file inference flow
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import AutoTokenizer, LlamaForCausalLM, AutoConfig
 import torch
 
 from accelerate import init_empty_weights,  disk_offload, infer_auto_device_map
@@ -28,6 +28,8 @@ from mp.big_modeling import load_checkpoint_and_dispatch
 from torch.cuda import nvtx
 
 import json 
+
+from LlamaDecoderLayer import LlamaDecoderLayer
 
 json_file_path = './datasets/squadv2/concatenated_300_sentences.json'
 
@@ -74,7 +76,10 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 config = AutoConfig.from_pretrained(model_name)
 nvtx.range_push('init empty')
 with init_empty_weights():
-    model = AutoModelForCausalLM.from_config(config)
+    #model = LlamaForCausalLM.from_config(config)
+    model = LlamaForCausalLM(config)
+    model.model.layers[7] = LlamaDecoderLayer(model.model.layers[7])
+print(model.state_dict)
 nvtx.range_pop()
 nvtx.range_push('infer DM')
 device_map = infer_auto_device_map(model, 
