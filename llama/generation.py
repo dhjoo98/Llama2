@@ -121,7 +121,7 @@ class Llama:
         ), f"Loading a checkpoint for MP={len(checkpoints)} but world size is {model_parallel_size}"
         ckpt_path = checkpoints[get_model_parallel_rank()]
         nvtx.range_push("torch.load checkpoint")
-        #checkpoint = torch.load(ckpt_path, map_location="cpu")
+        checkpoint = torch.load(ckpt_path, map_location="cpu")
         nvtx.range_pop()
         #param is just too insignificant
         #nvtx.range_push("json.load params")
@@ -137,18 +137,18 @@ class Llama:
         model_args.vocab_size = tokenizer.n_words
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
         nvtx.range_push('initialize model')
-        #model = Transformer(model_args)
-        with init_empty_weights():
-            model = Transformer(model_args)
-        model = load_checkpoint_and_dispatch(
-            model, checkpoint=checkpoints_hf[0], device_map="auto"
-        )
+        model = Transformer(model_args)
+        #with init_empty_weights():
+        #    model = Transformer(model_args)
+        #model = load_checkpoint_and_dispatch(
+        #    model, checkpoint=checkpoints_hf[0], device_map="auto"
+        #)
         nvtx.range_pop()
-        #nvtx.range_push('load state dict')
+        nvtx.range_push('load state dict')
         #os.kill(os.getpid(), signal.SIGUSR1)
-        #model.load_state_dict(checkpoint, strict=False)
+        model.load_state_dict(checkpoint, strict=False)
         #os.kill(os.getpid(), signal.SIGUSR1)
-        #nvtx.range_pop()
+        nvtx.range_pop()
         #print(f"Loaded in {time.time() - start_time:.2f} seconds")
 
         return Llama(model, tokenizer)
@@ -197,10 +197,13 @@ class Llama:
         max_prompt_len = max(len(t) for t in prompt_tokens)
         assert max_prompt_len <= params.max_seq_len
         total_len = min(params.max_seq_len, max_gen_len + max_prompt_len)
+        print("total_len: ", total_len, max_gen_len, max_prompt_len)
 
         pad_id = self.tokenizer.pad_id
         tokens = torch.full((bsz, total_len), pad_id, dtype=torch.long, device="cuda")
         for k, t in enumerate(prompt_tokens):
+            print("k: ", k)
+            print("t: ", t)
             tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long, device="cuda")
         if logprobs:
             token_logprobs = torch.zeros_like(tokens, dtype=torch.float)
@@ -209,9 +212,12 @@ class Llama:
         prev_pos = 0
         eos_reached = torch.tensor([False] * bsz, device="cuda")
         input_text_mask = tokens != pad_id
+        print("--------------------")
+        print(input_text_mask)
         #endor_total_activations = [] #donghyeon_endor
-        nvtx.range_push('Prompt phase')
+        #nvtx.range_push('Prompt phase')
         if min_prompt_len == total_len: 
+            print("does it get here")
             #logits, endor_prompt_activations = self.model.forward(tokens, prev_pos) #donghyeon_endor
             logits = self.model.forward(tokens, prev_pos) #donghyeon_endor
             #endor_total_activations.append(endor_prompt_activations) #donghyeon_endor
@@ -221,9 +227,12 @@ class Llama:
                 reduction="none",
                 ignore_index=pad_id,
             )
-        nvtx.range_pop()
-        nvtx.range_push('Decoding stage')
+        #nvtx.range_pop()
+        nvtx.range_push('Enc then Decoding stage')
         for cur_pos in range(min_prompt_len, total_len): #here is where cur_pos is incremented.
+            #print("----------------------------")
+            #print(tokens)
+            print("what this pass is accessing:", prev_pos, "~", cur_pos)
             logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos) #donghyeon_endor
             #logits, endor_single_token_activations = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos) #donghyeon_endor
             #endor_total_activations.append(endor_single_token_activations) #donghyeon_endor

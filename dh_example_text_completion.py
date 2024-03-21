@@ -28,9 +28,9 @@ def main(
     tokenizer_path: str,
     temperature: float = 0.6,
     top_p: float = 0.9,
-    max_seq_len: int = 150, #keeping this as a constant.| there's error when input prompt tokenized exceeds max_seq_len
+    max_seq_len: int = 200, #keeping this as a constant.| there's error when input prompt tokenized exceeds max_seq_len
         #but also, output is a repetition when input is too short.
-    max_gen_len: int = 100,
+    max_gen_len: int = 200,
     max_batch_size: int = 1,
     #max_seq_len: int = 128,
     #max_gen_len: int = 64,

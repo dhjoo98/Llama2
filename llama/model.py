@@ -16,6 +16,7 @@ from fairscale.nn.model_parallel.layers import (
     RowParallelLinear,
 )
 from torch import nn
+from torch.cuda import nvtx
 
 #donghyeon: where param is defined
 @dataclass
@@ -235,22 +236,25 @@ class Attention(nn.Module):
             init_method=lambda x: x,
         )
 
+        nvtx.range_push("KV Cache initialized")
         self.cache_k = torch.zeros(
             (
                 args.max_batch_size,
                 args.max_seq_len,
                 self.n_local_kv_heads,
                 self.head_dim,
-            )
-        ).cuda()
+            ), device = 0
+        )#.cuda()
         self.cache_v = torch.zeros(
             (
                 args.max_batch_size,
                 args.max_seq_len,
                 self.n_local_kv_heads,
                 self.head_dim,
-            )
-        ).cuda()
+            ), device = 0
+        )#.cuda()
+        print("KV cache initialized, each of size", self.cache_v.size(), "at", self.cache_v.device)
+        nvtx.range_pop()
 
     def forward(
         self,
@@ -291,6 +295,7 @@ class Attention(nn.Module):
 
         keys = self.cache_k[:bsz, : start_pos + seqlen] #Then load the entire key. 
         values = self.cache_v[:bsz, : start_pos + seqlen]
+        #print("KV cache size:", keys.size(), "each, located at", keys.device)
 
         # repeat k/v heads if n_kv_heads < n_heads 
         # in GQA, num_head of K and V is smaller then Q's head number 
@@ -417,10 +422,14 @@ class TransformerBlock(nn.Module):
 
         """
         #endor_activations_block = [self.layer_id] #donghyeon_endor: initialize on every forward pass. 
+        nvtx.range_push("Attention")
         h = x + self.attention.forward(  #donghyeon: the actual attention computation 
             self.attention_norm(x), start_pos, freqs_cis, mask
         )
+        nvtx.range_pop()
+        nvtx.range_push("FF")
         out_, Intermediate1, Intermediate2 = self.feed_forward.forward(self.ffn_norm(h)) #donghyeon: the actual ff computation
+        nvtx.range_pop()
         #endor_activations_block.append([Intermediate1,Intermediate2])
         out = h + out_ #donghyeon: the actual ff computation
         #out = h + self.feed_forward.forward(self.ffn_norm(h)) 

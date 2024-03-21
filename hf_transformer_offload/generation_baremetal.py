@@ -8,7 +8,8 @@ from typing import List, Literal, Optional, Tuple, TypedDict
 import torch
 import torch.nn.functional as F
 
-from baremetal_Llama.model import ModelArgs, Transformer
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+#from baremetal_Llama.model import ModelArgs, Transformer
 from llama.tokenizer import Tokenizer 
 
 from accelerate import init_empty_weights, load_checkpoint_and_dispatch, disk_offload
@@ -67,7 +68,7 @@ class Llama:
         # seed must be the same in all processes
         torch.manual_seed(seed)
 
-        
+        '''
         #naive 
         start_time = time.time()
         nvtx.range_push("torch.load checkpoint")
@@ -92,31 +93,37 @@ class Llama:
         #os.kill(os.getpid(), signal.SIGUSR1)
         nvtx.range_pop()
         print(f"Loaded in {time.time() - start_time:.2f} seconds")
-        
         '''
         #offload
-        start_time = time.time()
-        #checkpoint = "./llama-2-7b/consolidated.00.pth"
-        checkpoint = "./offload/param_no_ropefreq/consolidated.00.pth"
+        #start_time = time.time()
         
-        #for key in checkpoint.keys():         
-        #    print(f"{key}: {checkpoint[key].size()}")
+    
+        model_name = "meta-llama/Llama-2-7b-hf"
+        model_save_path = "/home/dhjoo/Workspace/llama2_nsight/Llama2/hf_transformer_offload/weights_2"#/hf_weight_7b.pth"
+            #straight download from huggingface repo
         
-        with open(Path(ckpt_dir) / "params.json", "r") as f:
-            params = json.loads(f.read())
-        model_args: ModelArgs = ModelArgs(
-            max_seq_len=max_seq_len,
-            max_batch_size=max_batch_size,
-            **params,
-        )
-        tokenizer = Tokenizer(model_path=tokenizer_path)
-        model_args.vocab_size = tokenizer.n_words
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        #tokenizer = Tokenizer(model_path=tokenizer_path)
+        config = AutoConfig.from_pretrained(model_name)
+        
         torch.set_default_tensor_type(torch.cuda.HalfTensor) # this must cause model to be initialized to GPU
         
         with init_empty_weights():
-            model = Transformer(model_args)
-        device_map = torch.load("./offload/device_map_5050_RMS.pth")
+            model = AutoModelForCausalLM.from_config(config)
+        print("done")
+        device_map = torch.load("./hf_transformer_offload/device_map/device_map_5050.pth")
+        for i in range(0,32):
+            key = "model.layers."+str(i)+".self_attn.rotary_emb.inv_freq"
+            device_map[key] = 0
+        model = load_checkpoint_and_dispatch(
+                    model, checkpoint=model_save_path, device_map=device_map, offload_folder="./hf_transformer_offload/offload", 
+                    offload_state_dict=True,
+                    no_split_module_classes=["LlamaDecoderLayer"]
+                )   
         
+
+        
+        '''
         model = load_checkpoint_and_dispatch(
             model, checkpoint=checkpoint, device_map=device_map, offload_folder="./offload/space", 
             offload_state_dict=True,
@@ -125,16 +132,9 @@ class Llama:
             )
             #model, checkpoint=checkpoint, device_map='auto', offload_state_dict=True, dtype='float16' ) 
             #possible float32 to float16 overhead at multiple times (and to cuda.HalfTensor?)
-        print(f"Loaded in {time.time() - start_time:.2f} seconds")
+        #print(f"Loaded in {time.time() - start_time:.2f} seconds")
         '''
         return Llama(model, tokenizer)
-        #'''
-        
-        
-        
-        
-        
-        
         
         #checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
         #checkpoints_hf = [str(path) for path in Path(ckpt_dir).glob("*.pth")]
@@ -150,7 +150,7 @@ class Llama:
         
         
 
-    def __init__(self, model: Transformer, tokenizer: Tokenizer):
+    def __init__(self, model: AutoModelForCausalLM, tokenizer: AutoTokenizer): #Tokenizer):
         #donghyeon model defined here 
         self.model = model
         self.tokenizer = tokenizer
@@ -185,30 +185,45 @@ class Llama:
             If logprobs is True, token log probabilities are computed for each generated token.
 
         """
-        params = self.model.params
+        #params = self.model.params
         bsz = len(prompt_tokens) #the first dimension, the batch size. 
-        assert bsz <= params.max_batch_size, (bsz, params.max_batch_size)
-
+        #assert bsz <= params.max_batch_size, (bsz, params.max_batch_size)
+        #bsz = 1 #temporary
+        
         #determine the forward pass parameter for each batch. (total_len)
         min_prompt_len = min(len(t) for t in prompt_tokens)
         max_prompt_len = max(len(t) for t in prompt_tokens)
-        assert max_prompt_len <= params.max_seq_len
-        total_len = min(params.max_seq_len, max_gen_len + max_prompt_len)
+        #assert max_prompt_len <= params.max_seq_len
+        #total_len = min(params.max_seq_len, max_gen_len + max_prompt_len)
+        #assert max_prompt_len <= params.max_seq_len
+        total_len = max_gen_len + max_prompt_len
 
-        pad_id = self.tokenizer.pad_id
-        tokens = torch.full((bsz, total_len), pad_id, dtype=torch.long, device="cuda")
+
+        #from https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/tokenization_llama.py#L66 
+        #'The default padding token is unset as there is no padding token in the original model.'
+        #pad_id = self.tokenizer.pad_id
+        #print(pad_id) 
+        #so leave batch dimension to 1 for now.
+        #tokens = torch.full((bsz, total_len), pad_id, dtype=torch.long, device="cuda")
+        tokens = torch.full((bsz, total_len), -1, dtype=torch.long, device="cuda")
         for k, t in enumerate(prompt_tokens):
+            #token[0,:] the single prompt.
+            #print("k: ", k)
+            #print("t: ", t) #these are tokenized 
             tokens[k, : len(t)] = torch.tensor(t, dtype=torch.long, device="cuda")
         if logprobs:
             token_logprobs = torch.zeros_like(tokens, dtype=torch.float)
 
         #looped forward pass for each token, (batched)
         prev_pos = 0
-        eos_reached = torch.tensor([False] * bsz, device="cuda")
-        input_text_mask = tokens != pad_id
+        eos_reached = torch.tensor([False] * bsz, device="cuda") #signify which prompt reached EOS.
+        #input_text_mask = tokens != pad_id
+        input_text_mask = tokens == True
         #endor_total_activations = [] #donghyeon_endor
+        #nvtx.range_push('Prompt phase')
+        print("hey, at least I got here")
         if min_prompt_len == total_len: 
-            print("_------------------------------I don't think this is visited")
+            print("does it get here")
             #logits, endor_prompt_activations = self.model.forward(tokens, prev_pos) #donghyeon_endor
             logits = self.model.forward(tokens, prev_pos) #donghyeon_endor
             #endor_total_activations.append(endor_prompt_activations) #donghyeon_endor
@@ -216,13 +231,15 @@ class Llama:
                 input=logits.transpose(1, 2),
                 target=tokens,
                 reduction="none",
-                ignore_index=pad_id,
+                #ignore_index=pad_id,
             )
-        #nvtx.range_push('Prompt + Decoding stage')
+        #nvtx.range_pop()
+        #nvtx.range_push('Decoding stage')
+        print("min_prompt_len", min_prompt_len)
+        print("total_len", total_len)
         for cur_pos in range(min_prompt_len, total_len): #here is where cur_pos is incremented.
-            #print("------------------------")
-            print("this pass using token indices:", prev_pos, "~", cur_pos)
-            #print(tokens)
+            print("tokens:", tokens)
+            print("prev, cur", prev_pos, cur_pos)
             logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos) #donghyeon_endor
             #logits, endor_single_token_activations = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos) #donghyeon_endor
             #endor_total_activations.append(endor_single_token_activations) #donghyeon_endor
@@ -305,7 +322,9 @@ class Llama:
         if max_gen_len is None:
             max_gen_len = self.model.params.max_seq_len - 1
         print("-----max_gen_length: ", max_gen_len)
-        prompt_tokens = [self.tokenizer.encode(x, bos=True, eos=False) for x in prompts]
+        #prompt_tokens = [self.tokenizer.encode(x, bos=True, eos=False) for x in prompts]
+        prompt_tokens = [self.tokenizer.encode(x) for x in prompts] #but tokenizer.tokenize(x) doesn't work
+        #print(prompt_tokens) #pass encded prompt to generate
         print("length of the input sequence is:", len(prompt_tokens[0]))
         #generation_tokens, generation_logprobs, endor_activations_final = self.generate( #donghyeon_endor
         generation_tokens, generation_logprobs = self.generate( #donghyeon_endor

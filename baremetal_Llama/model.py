@@ -9,6 +9,7 @@ from typing import Optional, Tuple
 import torch
 import torch.nn.functional as F 
 import torch.nn as nn
+from torch.cuda import nvtx
 
 @dataclass
 class ModelArgs:
@@ -193,6 +194,7 @@ class Attention(nn.Module):
         self.n_rep = self.n_local_heads // self.n_local_kv_heads
         self.head_dim = args.dim // args.n_heads
 
+        nvtx.range_push("KV Cache initialized")
         self.wq = nn.Linear( #Donghyeon: did analysis of Fairscale ColumnParallelLinear on Notion, in itself a linear layer.
             args.dim,
             args.n_heads * self.head_dim, 
@@ -238,6 +240,8 @@ class Attention(nn.Module):
                 self.head_dim,
             )
         ).cuda()
+        nvtx.range_pop()
+        print("------------------KVcache initialization size:", self.cache_v.size())
 
     def forward(
         self,
@@ -270,19 +274,23 @@ class Attention(nn.Module):
 
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
-        self.cache_k = self.cache_k.to(xq) #what does this do? 
-        self.cache_v = self.cache_v.to(xq) #according to GPT, match cache's device and type to xq. 
+        #match cache's device and type to xq. 
+        #this is only necessary for multi-compute element.
+        #self.cache_k = self.cache_k.to(xq) 
+        #self.cache_v = self.cache_v.to(xq)  
 
         self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk #access the first two dimension. 
         self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv #append to start_pos
 
         keys = self.cache_k[:bsz, : start_pos + seqlen] #Then load the entire key. 
+        print("~~~~~~~~~~~~~~~load key for our batch, key_Cache size:", keys.size())
         values = self.cache_v[:bsz, : start_pos + seqlen]
 
         # repeat k/v heads if n_kv_heads < n_heads 
         # in GQA, num_head of K and V is smaller then Q's head number 
         # number of repetition is the num_Q_heads // num_KV_heads
         keys = repeat_kv(keys, self.n_rep)  # (bs, cache_len + seqlen, n_local_heads, head_dim)
+        print("~~~~~~~~~~~~~~~for GQA, stack key_Cache:", keys.size())
         values = repeat_kv(values, self.n_rep)  # (bs, cache_len + seqlen, n_local_heads, head_dim)
 
         xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)

@@ -35,3 +35,33 @@ doesn't work free VRAM space. Only when VScode itself is turned off
 
 '''
 
+'''
+actually cleaning VRAM is a hardtask indeed. 
+
+
+although, 
+    doing a 
+    inp = torch.rand(10000, device=0)
+    model = test_layer()
+    model.forward(inp)
+        uses GPU (even if no model.to(0))
+
+tomorrow morning, try with a llama from hf. 
+'''
+
+
+'''
+source codes to refernece. 
+https://github.com/huggingface/accelerate/blob/main/src/accelerate/utils/modeling.py#L277 
+https://github.com/huggingface/accelerate/issues/1629 
+https://github.com/abetlen/llama-cpp-python/issues/223
+https://huggingface.co/docs/accelerate/en/usage_guides/big_modeling 
+https://huggingface.co/docs/accelerate/en/concept_guides/big_model_inference 
+https://huggingface.co/docs/accelerate/v0.27.2/en/package_reference/big_modeling#accelerate.load_checkpoint_and_dispatch
+
+if it goes south
+deepspeed: 
+https://www.deepspeed.ai/2022/09/09/zero-inference.html#when-to-use-zero-inference 
+https://github.com/microsoft/DeepSpeed 
+
+'''
